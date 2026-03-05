@@ -50,10 +50,10 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 # ── Helper ────────────────────────────────────────────────────────────────────
-def remove_from_queue(vendor_term, vendor_name):
+def remove_from_queue(vendor_term_id):
     st.session_state.queue = [
         t for t in st.session_state.queue
-        if not (t["term"] == vendor_term and t["vendor"] == vendor_name)
+        if t["vendor_term_id"] != vendor_term_id
     ]
     st.session_state.done_count    += 1
     st.session_state.candidates     = []
@@ -133,10 +133,11 @@ with tab_queue:
 
         with col_review:
             if filtered:
-                term_data   = filtered[selected_idx]
-                vendor_term = term_data["term"]
-                vendor_name = term_data["vendor"]
-                vendor_code = term_data["code"] or ""
+                term_data      = filtered[selected_idx]
+                vendor_term_id = term_data["vendor_term_id"]
+                vendor_term    = term_data["term"]
+                vendor_name    = term_data["vendor"]
+                vendor_code    = term_data["code"] or ""
 
                 st.subheader("Review Term")
                 with st.container(border=True):
@@ -150,7 +151,7 @@ with tab_queue:
                     with st.spinner(f"Searching concepts for '{vendor_term}'..."):
                         try:
                             st.session_state.candidates     = search_concepts(
-                                st.session_state.driver, neo4j_db, vendor_term, openai_key)
+                                st.session_state.driver, neo4j_db, vendor_term_id, openai_key)
                             st.session_state.vendor_matches = []
                             st.session_state.search_mode    = "concept"
                         except Exception as e:
@@ -160,7 +161,7 @@ with tab_queue:
                     with st.spinner(f"Finding similar vendor terms for '{vendor_term}'..."):
                         try:
                             st.session_state.vendor_matches = search_vendor_terms(
-                                st.session_state.driver, neo4j_db, vendor_term, openai_key)
+                                st.session_state.driver, neo4j_db, vendor_term_id, openai_key)
                             st.session_state.candidates     = []
                             st.session_state.search_mode    = "vendor"
                         except Exception as e:
@@ -206,9 +207,9 @@ with tab_queue:
                                          use_container_width=True, type="primary"):
                                 try:
                                     result = write_confirm(st.session_state.driver, neo4j_db,
-                                                           vendor_term, vendor_name, c["concept_id"], curator)
+                                                           vendor_term_id, c["concept_id"], curator)
                                     st.session_state.last_action = f"✅ Confirmed: **{vendor_term}** → {result['concept']}"
-                                    remove_from_queue(vendor_term, vendor_name)
+                                    remove_from_queue(vendor_term_id)
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Write error: {e}")
@@ -216,10 +217,9 @@ with tab_queue:
                                          use_container_width=True):
                                 try:
                                     result = write_propose(st.session_state.driver, neo4j_db,
-                                                           vendor_term, vendor_name, vendor_code,
-                                                           c["concept_id"], curator)
+                                                           vendor_term_id, c["concept_id"], curator)
                                     st.session_state.last_action = f"📋 Proposed: **{vendor_term}** → {result['concept']}"
-                                    remove_from_queue(vendor_term, vendor_name)
+                                    remove_from_queue(vendor_term_id)
                                     st.session_state.proposed = get_proposed_mappings(
                                         st.session_state.driver, neo4j_db)
                                     st.rerun()
@@ -254,11 +254,11 @@ with tab_queue:
                                          use_container_width=True, type="primary"):
                                 try:
                                     result = write_confirm(st.session_state.driver, neo4j_db,
-                                                           vendor_term, vendor_name, m["concept_id"], curator)
+                                                           vendor_term_id, m["concept_id"], curator)
                                     st.session_state.last_action = (
                                         f"✅ Confirmed: **{vendor_term}** → {result['concept']} "
                                         f"(from {m['vendor']}: {m['vendor_term']})")
-                                    remove_from_queue(vendor_term, vendor_name)
+                                    remove_from_queue(vendor_term_id)
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Write error: {e}")
@@ -266,12 +266,11 @@ with tab_queue:
                                          use_container_width=True):
                                 try:
                                     result = write_propose(st.session_state.driver, neo4j_db,
-                                                           vendor_term, vendor_name, vendor_code,
-                                                           m["concept_id"], curator)
+                                                           vendor_term_id, m["concept_id"], curator)
                                     st.session_state.last_action = (
                                         f"📋 Proposed: **{vendor_term}** → {result['concept']} "
                                         f"(from {m['vendor']}: {m['vendor_term']})")
-                                    remove_from_queue(vendor_term, vendor_name)
+                                    remove_from_queue(vendor_term_id)
                                     st.session_state.proposed = get_proposed_mappings(
                                         st.session_state.driver, neo4j_db)
                                     st.rerun()
@@ -282,9 +281,9 @@ with tab_queue:
                 if st.button("⏭ Skip this term"):
                     try:
                         write_skip(st.session_state.driver, neo4j_db,
-                                   vendor_term, vendor_name, curator)
+                                   vendor_term_id, curator)
                         st.session_state.last_action = f"⏭ Skipped: **{vendor_term}**"
-                        remove_from_queue(vendor_term, vendor_name)
+                        remove_from_queue(vendor_term_id)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Skip error: {e}")
@@ -332,7 +331,7 @@ with tab_proposed:
                              use_container_width=True, type="primary"):
                     try:
                         write_promote(st.session_state.driver, neo4j_db,
-                                      p["term"], p["vendor"], p["concept_id"], curator)
+                                      p["vendor_term_id"], p["concept_id"], curator)
                         st.session_state.proposed = get_proposed_mappings(
                             st.session_state.driver, neo4j_db)
                         st.session_state.last_action = f"✅ Approved: **{p['term']}** → {p['concept_name']}"
@@ -357,7 +356,7 @@ with tab_proposed:
                         else:
                             try:
                                 write_reject(st.session_state.driver, neo4j_db,
-                                             p["term"], p["vendor"], p["concept_id"],
+                                             p["vendor_term_id"], p["concept_id"],
                                              curator, reason)
                                 st.session_state.proposed = get_proposed_mappings(
                                     st.session_state.driver, neo4j_db)
